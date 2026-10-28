@@ -193,9 +193,9 @@ window.GLOSSARY_MEANINGS = {
   "tenerezza": "tenderness"
 };
 
-/* 3. Inizio e fine dei paragrafi (secondi del video). */
-/* Tempi verificati dal docente, in secondi. Aggiungi qui quelli esportati dal sito. */
-window.PARAGRAPH_TIMINGS = {};
+/* 3. Inizio e fine dei paragrafi (secondi del video).
+   Sono caricati dal file timings.js PRIMA di script.js.
+   Se non li hai ancora preparati, il player non può sincronizzarsi. */
 
 /* 4. Collegamento al database Supabase.
    Copia qui Project URL e PUBLISHABLE KEY dal progetto Mini Lettura.
@@ -209,9 +209,10 @@ window.ANALYTICS_CONFIG = {
 
 /* 5. Funzioni del sito: clic sul glossario, salvataggio, dashboard, audio e quiz. */
 'use strict';
-const VIDEO_ID='SXVucd-lU7Y';
+const VIDEO_ID='h1PzCiEi7cM';
 const rawTimes=window.PARAGRAPH_TIMINGS || {};
-const storedTimes=JSON.parse(localStorage.getItem('calvino_teacher_times')||'{}');
+const editorMode=new URLSearchParams(location.search).has('editor');
+const storedTimes=editorMode?JSON.parse(localStorage.getItem('calvino_teacher_times')||'{}'):{};
 let timings={...rawTimes,...storedTimes};
 const terms=window.TERM_LABELS||{};
 const cfg=window.ANALYTICS_CONFIG||{};
@@ -225,9 +226,21 @@ const pop=$('#gloss-popover');
 let activeGloss=null;
 const localCounterKey='calvino_demo_aggregate_counts';
 let counts=JSON.parse(localStorage.getItem(localCounterKey)||'{}');
-function speakLabel(p){const m=timings[p];return (m&&Number.isFinite(+m.start)&&Number.isFinite(+m.end)&&(+m.end>+m.start))?`${pretty(m.start)}–${pretty(m.end)}`:'Tempi da segnare';}
+function validTiming(m){return m && Number.isFinite(+m.start) && Number.isFinite(+m.end) && +m.end > +m.start;}
+function speakLabel(p){const m=timings[p];return validTiming(m)?`${pretty(m.start)}–${pretty(m.end)}`:'Audio da sincronizzare';}
 function pretty(t){let s=Math.max(0,Math.floor(+t));return String(Math.floor(s/60)).padStart(1,'0')+':'+String(s%60).padStart(2,'0');}
-function refreshTimings(){document.querySelectorAll('.audio-status').forEach(el=>el.textContent=speakLabel(el.dataset.paragraph));}
+function refreshTimings(){
+ document.querySelectorAll('.audio-status').forEach(el=>el.textContent=speakLabel(el.dataset.paragraph));
+ document.querySelectorAll('button[data-audio]').forEach(btn=>{
+  const available=validTiming(timings[btn.dataset.audio]);
+  // Il pulsante deve funzionare anche se il docente non ha ancora segnato i tempi.
+  btn.disabled=false;
+  btn.textContent=available?'▶ Ascolta il paragrafo':
+    editorMode?'▶ Apri il video per segnare i tempi':'▶ Apri la registrazione';
+  btn.title=available?'Ascolta solo questo paragrafo':
+    'Apre il video completo: i tempi di questo paragrafo non sono ancora disponibili';
+ });
+}
 function showGloss(button){
  if(activeGloss)activeGloss.classList.remove('active');
  activeGloss=button;button.classList.add('active');
@@ -241,7 +254,6 @@ const GLOSSARY=window.GLOSSARY_MEANINGS||{};
 document.addEventListener('click',e=>{
  const b=e.target.closest('.gloss');if(b){showGloss(b);return;}
  const a=e.target.closest('[data-audio]');if(a){playParagraph(+a.dataset.audio);return;}
- const o=e.target.closest('[data-original]');if(o){window.open('https://www.youtube.com/watch?v='+VIDEO_ID,'_blank','noopener');return;}
 });
 $('#pop-close').addEventListener('click',()=>{pop.hidden=true;if(activeGloss)activeGloss.classList.remove('active');});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){pop.hidden=true;if(activeGloss)activeGloss.classList.remove('active');}});
@@ -298,34 +310,78 @@ fetchCounts();if(dbReady)setInterval(fetchCounts,30000);
 // Un unico player YouTube IFrame API per tutti i paragrafi.
 let player=null,playerReady=false,requestedParagraph=null,ytInitialized=false;
 const dock=$('#audio-dock');
+// Per gli embed YouTube serve un HTTP Referer. Creiamo l'iframe NOI,
+// con referrerPolicy impostata PRIMA di caricare l'URL del video.
+// In questo modo YouTube può riconoscere il dominio Render che ospita la pagina.
 function createPlayer(){
  if(ytInitialized)return;ytInitialized=true;
- const script=document.createElement('script');script.src='https://www.youtube.com/iframe_api';document.head.append(script);
+ const oldSlot=$('#yt-player');
+ const frame=document.createElement('iframe');
+ frame.id='yt-player';
+ frame.title='Lettura audio di L’avventura di due sposi';
+ frame.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
+ frame.setAttribute('allow','accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share');
+ frame.setAttribute('allowfullscreen','');
+ frame.style.border='0';
+ frame.src='https://www.youtube.com/embed/'+VIDEO_ID+
+   '?enablejsapi=1&playsinline=1&origin='+encodeURIComponent(location.origin);
+ oldSlot.replaceWith(frame);
+ const api=document.createElement('script');
+ api.src='https://www.youtube.com/iframe_api';
+ api.onerror=()=>{$('#audio-info').textContent='Player YouTube non caricato. Usa il link qui sotto.';};
+ document.head.append(api);
 }
 window.onYouTubeIframeAPIReady=()=>{
  player=new YT.Player('yt-player',{
-  width:'640',height:'360',videoId:VIDEO_ID,playerVars:{playsinline:1,rel:0},
-  events:{onReady:()=>{playerReady=true;$('#audio-info').textContent='Player pronto. Seleziona un paragrafo.';if(requestedParagraph)playParagraph(requestedParagraph);},
-  onError:(e)=>{$('#audio-info').textContent='YouTube non consente la riproduzione incorporata (errore '+e.data+'). Usa il link al video.';}}
+  events:{
+   onReady:()=>{
+    playerReady=true;
+    $('#audio-info').textContent='Player pronto.';
+    if(requestedParagraph)playParagraph(requestedParagraph);
+   },
+   onError:e=>{
+    let msg='Riproduzione incorporata non disponibile (errore '+e.data+').';
+    if(e.data===153) msg+=' YouTube non ha ricevuto un Referer valido: prova il link qui sotto o un altro browser.';
+    $('#audio-info').textContent=msg+' Il link esterno funziona anche quando l’embed è bloccato.';
+   }
+  }
  });
 };
+// Una sola alternativa esterna al player, aggiornata per il paragrafo richiesto.
+function updateExternalLink(n){
+ const m=timings[n];
+ const at=validTiming(m)?Math.max(0,Math.floor(+m.start)):2;
+ const link=$('#youtube-fallback');
+ link.href='https://www.youtube.com/watch?v='+VIDEO_ID+'&t='+at+'s';
+ link.textContent=validTiming(m)?
+   'apri YouTube da '+pretty(m.start):
+   'apri YouTube dall’inizio (tempi del paragrafo non disponibili)';
+}
 function playParagraph(n){
  requestedParagraph=n;dock.hidden=false;
  $('#playing-title').textContent='Paragrafo '+n;
  const m=timings[n];
- if(!playerReady){$('#audio-info').textContent='Caricamento del player…';createPlayer();return;}
- if(m && +m.end>+m.start){
+ updateExternalLink(n);
+ if(!playerReady){
+  $('#audio-info').textContent='Caricamento del player… Se appare errore 153, usa il link qui sotto.';
+  createPlayer();return;
+ }
+ if(validTiming(m)){
   player.loadVideoById({videoId:VIDEO_ID,startSeconds:+m.start,endSeconds:+m.end});
   $('#audio-info').textContent='Riproduzione del passaggio '+pretty(m.start)+'–'+pretty(m.end);
+ } else if(editorMode){
+  player.loadVideoById({videoId:VIDEO_ID,startSeconds:2});
+  $('#audio-info').textContent='Modalità docente: individua i tempi e salvali; puoi inserirli anche manualmente negli appositi campi.';
  } else {
   player.loadVideoById({videoId:VIDEO_ID,startSeconds:2});
-  $('#audio-info').textContent='Tempi non ancora allineati: parte dall’inizio del video, non dal paragrafo scelto.';
+  $('#audio-info').textContent='Il video parte dall’inizio perché mancano ancora i tempi del paragrafo '+n+'.';
  }
 }
 $('#hide-audio').addEventListener('click',()=>{dock.hidden=true;if(playerReady)player.pauseVideo();});
 
 // L'editor è visibile solo se URL contiene ?editor=1; senza autorizzazione, vale soltanto nel browser locale.
-if(new URLSearchParams(location.search).has('editor')){
+if(editorMode){
+ document.body.classList.add('editor-mode');
  $('#teacher-tool').hidden=false;
  const select=$('#teacher-paragraph');
  for(let i=1;i<=14;i++){const op=document.createElement('option');op.value=i;op.textContent='Paragrafo '+i;select.append(op);}
@@ -341,7 +397,7 @@ if(new URLSearchParams(location.search).has('editor')){
  });
  $('#teacher-preview').addEventListener('click',()=>playParagraph(+select.value));
  $('#export-timings').addEventListener('click',()=>{
-  const output='/* Copia questa assegnazione nella sezione 3 di script.js */\nwindow.PARAGRAPH_TIMINGS = '+JSON.stringify(timings,null,2)+';\n';
+  const output='/* Tempi verificati dal docente. Carica questo file su GitHub accanto a index.html. */\nwindow.PARAGRAPH_TIMINGS = '+JSON.stringify(timings,null,2)+';\n';
   const blob=new Blob([output],{type:'text/javascript'});const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download='timings.js';a.click();setTimeout(()=>URL.revokeObjectURL(href),500);
  });
 }
