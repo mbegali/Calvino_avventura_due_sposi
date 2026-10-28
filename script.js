@@ -203,8 +203,8 @@ window.GLOSSARY_MEANINGS = {
 // Esegui database.sql nel SQL Editor di Supabase; incolla qui URL e chiave pubblica.
 // Non inserire mai una service_role key o una secret key!
 window.ANALYTICS_CONFIG = {
-  supabaseUrl: "https://icqrmuzamalslgyxncel.supabase.co",
-  anonKey: "sb_publishable_p5o00R30ORMHspSYwJqM1w_YNPRp4Cy"
+  supabaseUrl: "",
+  anonKey: ""
 };
 
 /* 5. Funzioni del sito: clic sul glossario, salvataggio, dashboard, audio e quiz. */

@@ -1,3 +1,9 @@
+CALVINO — REDESIGN VISIVO
+
+Questa versione mantiene la logica e i timings del sito sincronizzato,
+ma usa una nuova identità visiva ispirata alla copertina caricata di Gli amori difficili.
+Asset aggiunto: calvino_cover.jpg
+
 CALVINO — SITO SINCRONIZZATO
 
 VIDEO
